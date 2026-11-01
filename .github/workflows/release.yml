@@ -1,0 +1,144 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    # Commits made by this workflow are tagged [skip ci] so the repo.json push
+    # does not start another build.
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      # Dalamud assemblies are not on NuGet; the SDK resolves them from
+      # DalamudLibPath, which defaults to %AppData%\XIVLauncher\addon\Hooks\dev.
+      - name: Download Dalamud
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile dalamud.zip
+          Expand-Archive -Force dalamud.zip "$env:AppData\XIVLauncher\addon\Hooks\dev"
+
+      - name: Build
+        run: dotnet build -c Release
+
+      # Version and API level are read from the manifest the build produced,
+      # never hardcoded.
+      - name: Read built manifest
+        id: meta
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem -Path bin -Recurse -Filter latest.zip |
+                 Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $zip) { throw "latest.zip was not produced - did the build fail?" }
+
+          $manifestPath = Join-Path $zip.DirectoryName "IdlePlus.json"
+          if (-not (Test-Path $manifestPath)) { throw "Built manifest not found at $manifestPath" }
+
+          $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+          if (-not $manifest.AssemblyVersion) { throw "AssemblyVersion missing from $manifestPath" }
+          if (-not $manifest.DalamudApiLevel) { throw "DalamudApiLevel missing from $manifestPath" }
+
+          Write-Host "Version: $($manifest.AssemblyVersion)  API level: $($manifest.DalamudApiLevel)"
+          "version=$($manifest.AssemblyVersion)"  >> $env:GITHUB_OUTPUT
+          "api=$($manifest.DalamudApiLevel)"      >> $env:GITHUB_OUTPUT
+          "zip=$($zip.FullName)"                  >> $env:GITHUB_OUTPUT
+
+      # Creates the release and the tag if that version has not been released
+      # yet, so bumping <Version> and pushing to main is all it takes.
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ steps.meta.outputs.version }}"
+          $tag = "v$version"
+          $zip = "${{ steps.meta.outputs.zip }}"
+
+          $ErrorActionPreference = 'Continue'
+          gh release view $tag --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+            # The release for this version already exists. Replace the asset so it
+            # always matches the current commit instead of serving a stale build.
+            Write-Host "Release $tag exists - refreshing latest.zip from $zip"
+            gh release upload $tag $zip --clobber
+            if ($LASTEXITCODE -ne 0) { throw "gh release upload failed for $tag" }
+            return
+          }
+
+          Write-Host "Creating release $tag from $zip"
+          gh release create $tag $zip --target main `
+            --title "Idle+ $version" `
+            --notes "Release $version"
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag" }
+
+      # Keeps repo.json in sync with what was actually built: the version Dalamud
+      # compares against, and the API level it checks.
+      - name: Sync repo.json
+        if: github.ref_type == 'branch'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.meta.outputs.version }}"
+          $api = [int]"${{ steps.meta.outputs.api }}"
+
+          $repo = Get-Content repo.json -Raw | ConvertFrom-Json
+          if ($null -eq $repo) { throw "repo.json is empty" }
+          # ConvertFrom-Json returns an array for a JSON array; normalize a lone
+          # object to an array. Do not wrap in @() - that nests the array.
+          if ($repo -isnot [System.Array]) { $repo = @($repo) }
+          if ($repo.Count -lt 1) { throw "repo.json is not a non-empty JSON array" }
+
+          $changed = $false
+          if ($repo[0].AssemblyVersion -ne $version) {
+            Write-Host "AssemblyVersion: $($repo[0].AssemblyVersion) -> $version"
+            $repo[0].AssemblyVersion = $version
+            $changed = $true
+          }
+          if ([int]$repo[0].DalamudApiLevel -ne $api) {
+            Write-Host "DalamudApiLevel: $($repo[0].DalamudApiLevel) -> $api"
+            $repo[0].DalamudApiLevel = $api
+            $changed = $true
+          }
+
+          # Point the download links at the tag for THIS version. The
+          # /releases/latest/download/ redirect can keep serving a cached copy of
+          # a previous asset, which would hand out a stale zip after an update.
+          $link = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v$version/latest.zip"
+          foreach ($field in @('DownloadLinkInstall', 'DownloadLinkUpdate')) {
+            if ($repo[0].$field -ne $link) {
+              Write-Host "${field}: $($repo[0].$field) -> $link"
+              $repo[0].$field = $link
+              $changed = $true
+            }
+          }
+
+          if (-not $changed) {
+            Write-Host "repo.json already up to date."
+            return
+          }
+
+          $repo | ConvertTo-Json -Depth 10 -AsArray | Set-Content repo.json -Encoding utf8
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add repo.json
+          git commit -m "Update repo.json for $version [skip ci]"
+          git push

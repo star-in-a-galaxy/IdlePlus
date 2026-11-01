@@ -1,0 +1,9 @@
+{
+  "Author": "star-in-a-galaxy",
+  "Name": "Idle+",
+  "Punchline": "See and set your Idle, Groundsit and Doze poses.",
+  "Description": "Shows your current Idle, Groundsit and Doze /cpose numbers and lets you change them. ",
+  "Tags": ["emote", "pose", "cpose", "idle", "utility"],
+  "InternalName": "IdlePlus",
+  "IconUrl": "https://raw.githubusercontent.com/star-in-a-galaxy/IdlePlus/main/images/icon.png"
+}

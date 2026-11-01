@@ -1,0 +1,17 @@
+[
+  {
+    "Author": "star-in-a-galaxy",
+    "Name": "Idle+",
+    "InternalName": "IdlePlus",
+    "AssemblyVersion": "1.0.0.0",
+    "Description": "Shows your current Idle, Groundsit and Doze /cpose numbers and lets you change them.",
+    "Punchline": "See and set your Idle, Groundsit and Doze poses.",
+    "ApplicableVersion": "any",
+    "RepoUrl": "https://github.com/star-in-a-galaxy/IdlePlus",
+    "IconUrl": "https://raw.githubusercontent.com/star-in-a-galaxy/IdlePlus/main/images/icon.png",
+    "Tags": ["emote", "pose", "cpose", "idle", "utility"],
+    "DalamudApiLevel": 15,
+    "DownloadLinkInstall": "https://github.com/star-in-a-galaxy/IdlePlus/releases/download/v1.0.0.0/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/star-in-a-galaxy/IdlePlus/releases/download/v1.0.0.0/latest.zip"
+  }
+]

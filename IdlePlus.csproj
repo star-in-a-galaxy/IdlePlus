@@ -1,0 +1,7 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <!-- Match the SDK version to the current Dalamud API level (see goatcorp/Dalamud.NET.Sdk). -->
+  <PropertyGroup>
+    <Version>1.0.0.0</Version>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+</Project>
